@@ -6,13 +6,36 @@ dependencies:
       registry_url: https://components.espressif.com/
       type: service
     version: 1.0.0
+  espressif/esp_lvgl_port:
+    component_hash: f872401524cb645ee6ff1c9242d44fb4ddcfd4d37d7be8b9ed3f4e85a404efcd
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.1'
+    - name: lvgl/lvgl
+      registry_url: https://components.espressif.com
+      require: public
+      version: '>=8,<10'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 2.7.0
   idf:
     source:
       type: idf
     version: 5.5.1
+  lvgl/lvgl:
+    component_hash: 17e68bfd21f0edf4c3ee838e2273da840bf3930e5dbc3bfa6c1190c3aed41f9f
+    dependencies: []
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 9.4.0
 direct_dependencies:
 - chiehmin/scd41
+- espressif/esp_lvgl_port
 - idf
-manifest_hash: 863b0d299341764946018f4ac78a8f8322440f154a9d042a3ef509ec738d9649
+- lvgl/lvgl
+manifest_hash: cdf418b36e60e1be44f3a5f4249fcd19a3b42a44542e79992474004330a86988
 target: esp32
 version: 2.0.0

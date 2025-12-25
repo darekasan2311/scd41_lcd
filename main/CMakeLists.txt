@@ -1,3 +1,4 @@
-idf_component_register(SRCS "scd41_lcd.c"
+idf_component_register(SRCS "scd41_lcd.c" "jet_mono_light_32.c"
                     INCLUDE_DIRS "."
-                    REQUIRES scd41)
+                    REQUIRES st7789 driver esp_timer
+                    )
