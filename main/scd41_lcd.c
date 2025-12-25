@@ -23,7 +23,10 @@ static lv_obj_t *label_co2 = NULL;
 static lv_obj_t *label_temp = NULL;
 static lv_obj_t *label_humid = NULL;
 
-extern void create_sensor_labels(const lv_font_t *font);
+extern void create_sensor_labels();
+extern void create_sensor_co2(const lv_font_t *font_label, const lv_font_t *font_value);
+extern void create_sensor_temp(const lv_font_t *font_label, const lv_font_t *font_value);
+extern void create_sensor_hum(const lv_font_t *font_label, const lv_font_t *font_value);
 
 // LVGL timer callback - runs in LVGL context
 static void lvgl_update_timer_cb(lv_timer_t *timer)
@@ -34,47 +37,75 @@ static void lvgl_update_timer_cb(lv_timer_t *timer)
     if (xSemaphoreTake(data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
         if (sensor_data.data_ready) {
             if (label_co2) {
-                snprintf(text_buffer, sizeof(text_buffer), "CO2: %d ppm", sensor_data.co2_ppm);
+                snprintf(text_buffer, sizeof(text_buffer), ": %d ppm", sensor_data.co2_ppm);
                 lv_label_set_text(label_co2, text_buffer);
             }
             
             if (label_temp) {
-                snprintf(text_buffer, sizeof(text_buffer), "Temp: %.1f C", sensor_data.temperature);
+                snprintf(text_buffer, sizeof(text_buffer), ": %.1f C", sensor_data.temperature);
                 lv_label_set_text(label_temp, text_buffer);
             }
             
             if (label_humid) {
-                snprintf(text_buffer, sizeof(text_buffer), "Humidity: %.1f %%", sensor_data.humidity);
+                snprintf(text_buffer, sizeof(text_buffer), ": %.1f %%", sensor_data.humidity);
                 lv_label_set_text(label_humid, text_buffer);
             }
         }
         xSemaphoreGive(data_mutex);
     }
 }
-
-void create_sensor_labels(const lv_font_t *font)
+// in lv_color_make order is BRG with RGB565 notation
+// max values are: 31, 31, 63
+void create_sensor_co2(const lv_font_t *font_label, const lv_font_t *font_value)
 {
-    // CO2 Label
+    // CO2 Label and Value
+    lv_obj_t *label_co2_text = lv_label_create(lv_screen_active());
+    lv_label_set_text(label_co2_text, "CO2");
+    lv_obj_set_style_text_font(label_co2_text, font_label, 0);
+    lv_obj_set_style_text_color(label_co2_text, lv_color_make(31, 31, 63), 0);
+    lv_obj_set_pos(label_co2_text, 10, 60);
+    
     label_co2 = lv_label_create(lv_screen_active());
-    lv_label_set_text(label_co2, "CO2: -- ppm");
-    lv_obj_set_style_text_font(label_co2, font, 0);
-    lv_obj_set_style_text_color(label_co2, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_pos(label_co2, 10, 60);
+    lv_label_set_text(label_co2, ": -- ppm");
+    lv_obj_set_style_text_font(label_co2, font_value, 0);
+    lv_obj_set_style_text_color(label_co2, lv_color_make(31, 31, 63), 0);
+    lv_obj_set_pos(label_co2, 80, 60);
+}
+
+void create_sensor_temp(const lv_font_t *font_label, const lv_font_t *font_value)
+{
+    // Temperature Label and Value
+    lv_obj_t *label_temp_text = lv_label_create(lv_screen_active());
+    lv_label_set_text(label_temp_text, "湿度");
+    lv_obj_set_style_text_font(label_temp_text, font_label, 0);
+    lv_obj_set_style_text_color(label_temp_text, lv_color_make(31, 31, 63), 0);
+    lv_obj_set_pos(label_temp_text, 10, 110);
     
-    // Temperature Label
     label_temp = lv_label_create(lv_screen_active());
-    lv_label_set_text(label_temp, "Temp: -- C");
-    lv_obj_set_style_text_font(label_temp, font, 0);
-    lv_obj_set_style_text_color(label_temp, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_pos(label_temp, 10, 110);
+    lv_label_set_text(label_temp, ": -- C");
+    lv_obj_set_style_text_font(label_temp, font_value, 0);
+    lv_obj_set_style_text_color(label_temp, lv_color_make(31, 31, 63), 0);
+    lv_obj_set_pos(label_temp, 80, 110);
+}
+
+void create_sensor_hum(const lv_font_t *font_label, const lv_font_t *font_value)
+{
+    // Humidity Label and Value
+    lv_obj_t *label_humid_text = lv_label_create(lv_screen_active());
+    lv_label_set_text(label_humid_text, "温度");
+    lv_obj_set_style_text_font(label_humid_text, font_label, 0);
+    lv_obj_set_style_text_color(label_humid_text, lv_color_make(31, 31, 63), 0);
+    lv_obj_set_pos(label_humid_text, 10, 160);
     
-    // Humidity Label
     label_humid = lv_label_create(lv_screen_active());
-    lv_label_set_text(label_humid, "Humidity: -- %");
-    lv_obj_set_style_text_font(label_humid, font, 0);
-    lv_obj_set_style_text_color(label_humid, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_pos(label_humid, 10, 160);
-    
+    lv_label_set_text(label_humid, ": -- %");
+    lv_obj_set_style_text_font(label_humid, font_value, 0);
+    lv_obj_set_style_text_color(label_humid, lv_color_make(31, 31, 63), 0);
+    lv_obj_set_pos(label_humid, 80, 160);
+}
+
+void create_sensor_labels()
+{
     // Create LVGL timer to update UI every 500ms
     lv_timer_create(lvgl_update_timer_cb, 500, NULL);
 }
@@ -132,17 +163,21 @@ void app_main(void)
     
     char *message = "Sensor Monitor";
     extern lv_font_t jet_mono_light_32;
+    extern lv_font_t noto_sans_jap;
     
     create_background();
     create_label(&jet_mono_light_32, 10, 10, message);
-    create_sensor_labels(&jet_mono_light_32);
+    create_sensor_co2(&jet_mono_light_32, &jet_mono_light_32);
+    create_sensor_temp(&noto_sans_jap, &jet_mono_light_32);
+    create_sensor_hum(&noto_sans_jap, &jet_mono_light_32);
+    create_sensor_labels();
     
     // Start sensor task
     xTaskCreate(scd_task, "scd_task", 4096, NULL, 5, NULL);
     
     // LVGL task handler loop
     while (1) {
-        lv_timer_handler();  // Process LVGL tasks
-        vTaskDelay(pdMS_TO_TICKS(10));  // 10ms is typical for LVGL
+        lv_timer_handler();
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
