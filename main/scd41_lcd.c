@@ -2,6 +2,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
+#include "driver/gpio.h"
 #include "esp_log.h"
 #include "esp_err.h"
 #include "esp_timer.h"
@@ -13,6 +14,10 @@
 #define I2C_MASTER_SCL_IO 22
 #define I2C_MASTER_SDA_IO 21
 #define I2C_MASTER_FREQ_HZ 100000
+
+// GPIO config
+#define ON_OFF_BUTTON GPIO_NUM_32
+#define DEBOUNCE_TIME_MS 50
 
 static const char *TAG = "SCD41";
 
@@ -110,6 +115,47 @@ void create_sensor_labels()
     lv_timer_create(lvgl_update_timer_cb, 500, NULL);
 }
 
+void on_off_button_task(void *arg)
+{
+   // Configure GPIO as input
+    gpio_config_t io_conf = {
+        .pin_bit_mask = (1ULL << ON_OFF_BUTTON),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,  // Enable internal pull-up
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE
+    };
+    gpio_config(&io_conf);
+
+    bool last_state = true;
+    bool current_state;
+    bool screen_state = true;
+    
+    ESP_LOGI(TAG, "Button monitoring started on GPIO %d", ON_OFF_BUTTON);
+
+    while (1) {
+        current_state = gpio_get_level(ON_OFF_BUTTON);
+        
+        if (last_state && !current_state) {
+            vTaskDelay(pdMS_TO_TICKS(DEBOUNCE_TIME_MS));
+            current_state = gpio_get_level(ON_OFF_BUTTON);
+            
+            if (!current_state) {
+                ESP_LOGI(TAG, "Button PRESSED");
+                
+                screen_state = !screen_state;
+                
+                // Just toggle the backlight GPIO
+                gpio_set_level(PIN_NUM_BK_LIGHT, screen_state ? 1 : 0);
+                ESP_LOGI(TAG, "Backlight %s", screen_state ? "ON" : "OFF");
+            }
+        }
+        
+        last_state = current_state;
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}
+
 void scd_task(void *arg)
 {
     // Configure I2C master
@@ -140,8 +186,8 @@ void scd_task(void *arg)
         esp_err_t ret = scd41_read_measurement(&data);
         
         if (ret == ESP_OK && data.data_ready) {
-            ESP_LOGI(TAG, "CO2: %d ppm, Temperature: %.1f°C, Humidity: %.1f%%",
-                     data.co2_ppm, data.temperature, data.humidity);
+            // ESP_LOGI(TAG, "CO2: %d ppm, Temperature: %.1f°C, Humidity: %.1f%%",
+            //          data.co2_ppm, data.temperature, data.humidity);
             
             if (xSemaphoreTake(data_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
                 sensor_data = data;
@@ -174,6 +220,7 @@ void app_main(void)
     
     // Start sensor task
     xTaskCreate(scd_task, "scd_task", 4096, NULL, 5, NULL);
+    xTaskCreate(on_off_button_task, "on_off_button_task", 4096, NULL, 5, NULL);
     
     // LVGL task handler loop
     while (1) {

@@ -27,7 +27,6 @@
 #define LVGL_TICK_PERIOD_MS 2
 #define LVGL_BUFFER_HEIGHT  50
 
-
 void init_lcd(int rotation);
 void create_label(const lv_font_t *font, int x, int y, char *text);
 void create_background(void);
