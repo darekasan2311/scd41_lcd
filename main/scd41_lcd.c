@@ -17,6 +17,7 @@
 
 // GPIO config
 #define ON_OFF_BUTTON GPIO_NUM_32
+#define NEXT_SCREEN_BUTTON GPIO_NUM_33
 #define DEBOUNCE_TIME_MS 50
 
 static const char *TAG = "SCD41";
@@ -27,6 +28,9 @@ static SemaphoreHandle_t data_mutex = NULL;
 static lv_obj_t *label_co2 = NULL;
 static lv_obj_t *label_temp = NULL;
 static lv_obj_t *label_humid = NULL;
+static lv_obj_t *screen_sensor = NULL;
+static lv_obj_t *screen_temp_graph = NULL;
+static int current_screen = 0;  // 0 = sensor screen, 1 = temp graph screen
 
 extern void create_sensor_labels();
 extern void create_sensor_co2(const lv_font_t *font_label, const lv_font_t *font_value);
@@ -64,13 +68,13 @@ static void lvgl_update_timer_cb(lv_timer_t *timer)
 void create_sensor_co2(const lv_font_t *font_label, const lv_font_t *font_value)
 {
     // CO2 Label and Value
-    lv_obj_t *label_co2_text = lv_label_create(lv_screen_active());
+    lv_obj_t *label_co2_text = lv_label_create(screen_sensor);  // Changed from lv_screen_active()
     lv_label_set_text(label_co2_text, "CO2");
     lv_obj_set_style_text_font(label_co2_text, font_label, 0);
     lv_obj_set_style_text_color(label_co2_text, lv_color_make(31, 31, 63), 0);
     lv_obj_set_pos(label_co2_text, 10, 60);
     
-    label_co2 = lv_label_create(lv_screen_active());
+    label_co2 = lv_label_create(screen_sensor);  // Changed from lv_screen_active()
     lv_label_set_text(label_co2, ": -- ppm");
     lv_obj_set_style_text_font(label_co2, font_value, 0);
     lv_obj_set_style_text_color(label_co2, lv_color_make(31, 31, 63), 0);
@@ -80,13 +84,13 @@ void create_sensor_co2(const lv_font_t *font_label, const lv_font_t *font_value)
 void create_sensor_temp(const lv_font_t *font_label, const lv_font_t *font_value)
 {
     // Temperature Label and Value
-    lv_obj_t *label_temp_text = lv_label_create(lv_screen_active());
+    lv_obj_t *label_temp_text = lv_label_create(screen_sensor);  // Changed
     lv_label_set_text(label_temp_text, "湿度");
     lv_obj_set_style_text_font(label_temp_text, font_label, 0);
     lv_obj_set_style_text_color(label_temp_text, lv_color_make(31, 31, 63), 0);
     lv_obj_set_pos(label_temp_text, 10, 110);
     
-    label_temp = lv_label_create(lv_screen_active());
+    label_temp = lv_label_create(screen_sensor);  // Changed
     lv_label_set_text(label_temp, ": -- C");
     lv_obj_set_style_text_font(label_temp, font_value, 0);
     lv_obj_set_style_text_color(label_temp, lv_color_make(31, 31, 63), 0);
@@ -96,17 +100,58 @@ void create_sensor_temp(const lv_font_t *font_label, const lv_font_t *font_value
 void create_sensor_hum(const lv_font_t *font_label, const lv_font_t *font_value)
 {
     // Humidity Label and Value
-    lv_obj_t *label_humid_text = lv_label_create(lv_screen_active());
+    lv_obj_t *label_humid_text = lv_label_create(screen_sensor);  // Changed
     lv_label_set_text(label_humid_text, "温度");
     lv_obj_set_style_text_font(label_humid_text, font_label, 0);
     lv_obj_set_style_text_color(label_humid_text, lv_color_make(31, 31, 63), 0);
     lv_obj_set_pos(label_humid_text, 10, 160);
     
-    label_humid = lv_label_create(lv_screen_active());
+    label_humid = lv_label_create(screen_sensor);  // Changed
     lv_label_set_text(label_humid, ": -- %");
     lv_obj_set_style_text_font(label_humid, font_value, 0);
     lv_obj_set_style_text_color(label_humid, lv_color_make(31, 31, 63), 0);
     lv_obj_set_pos(label_humid, 80, 160);
+}
+// Create the sensor screen
+void create_sensor_screen()
+{
+    extern lv_font_t jet_mono_light_32;
+    extern lv_font_t noto_sans_jap;
+    
+    // Create sensor screen
+    screen_sensor = lv_obj_create(NULL);
+    lv_obj_set_style_bg_color(screen_sensor, lv_color_make(0, 0, 0), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(screen_sensor, LV_OPA_COVER, LV_PART_MAIN);
+    
+    // Add title
+    lv_obj_t *label_title = lv_label_create(screen_sensor);
+    lv_label_set_text(label_title, "Sensor Monitor");
+    lv_obj_set_style_text_font(label_title, &jet_mono_light_32, 0);
+    lv_obj_set_style_text_color(label_title, lv_color_make(31, 31, 63), 0);
+    lv_obj_set_pos(label_title, 10, 10);
+    
+    // Create sensor labels
+    create_sensor_co2(&jet_mono_light_32, &jet_mono_light_32);
+    create_sensor_temp(&noto_sans_jap, &jet_mono_light_32);
+    create_sensor_hum(&noto_sans_jap, &jet_mono_light_32);
+}
+
+// Create temp graph screen
+void create_temp_graph_screen()
+{
+    extern lv_font_t jet_mono_light_32;
+    
+    // Create temp screen
+    screen_temp_graph = lv_obj_create(NULL);
+    lv_obj_set_style_bg_color(screen_temp_graph, lv_color_make(0, 0, 0), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(screen_temp_graph, LV_OPA_COVER, LV_PART_MAIN);
+    
+    // Add text
+    lv_obj_t *label_temp_graph = lv_label_create(screen_temp_graph);
+    lv_label_set_text(label_temp_graph, "Temp Graph");
+    lv_obj_set_style_text_font(label_temp_graph, &jet_mono_light_32, 0);
+    lv_obj_set_style_text_color(label_temp_graph, lv_color_make(31, 31, 63), 0);
+    lv_obj_align(label_temp_graph, LV_ALIGN_TOP_MID, 0, 0);  // Center the text
 }
 
 void create_sensor_labels()
@@ -151,6 +196,54 @@ void on_off_button_task(void *arg)
             }
         }
         
+        last_state = current_state;
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}
+
+void next_screen_button_task(void *arg)
+{
+    gpio_config_t io_conf = {
+        .pin_bit_mask = (1ULL << NEXT_SCREEN_BUTTON),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE
+    };
+    gpio_config(&io_conf);
+
+    bool last_state = true;
+    bool current_state;
+    
+    ESP_LOGI(TAG, "Button monitoring started on GPIO %d", NEXT_SCREEN_BUTTON);
+
+    while (1) {
+        current_state = gpio_get_level(NEXT_SCREEN_BUTTON);
+        
+        if (last_state && !current_state) {
+            vTaskDelay(pdMS_TO_TICKS(DEBOUNCE_TIME_MS));
+            current_state = gpio_get_level(NEXT_SCREEN_BUTTON);
+            
+            if (!current_state) {
+                ESP_LOGI(TAG, "Next Button PRESSED");
+                
+                // Toggle between screens
+                current_screen = (current_screen + 1) % 2;  // Toggle between 0 and 1
+                
+                // Switch screen (must be done in LVGL lock)
+                if (lvgl_port_lock(0)) {
+                    if (current_screen == 0) {
+                        lv_screen_load(screen_sensor);
+                        ESP_LOGI(TAG, "Switched to Sensor screen");
+                    } else {
+                        lv_screen_load(screen_temp_graph);
+                        ESP_LOGI(TAG, "Switched to Temp screen");
+                    }
+                    lvgl_port_unlock();
+                }
+            }
+        }
+
         last_state = current_state;
         vTaskDelay(pdMS_TO_TICKS(10));
     }
@@ -207,20 +300,25 @@ void app_main(void)
     
     init_lcd(LV_DISP_ROT_270);
     
-    char *message = "Sensor Monitor";
-    extern lv_font_t jet_mono_light_32;
-    extern lv_font_t noto_sans_jap;
+    // Lock LVGL before creating screens
+    if (lvgl_port_lock(0)) {
+        // Create both screens
+        create_sensor_screen();
+        create_temp_graph_screen();
+        
+        // Load the sensor screen initially
+        lv_screen_load(screen_sensor);
+        
+        lvgl_port_unlock();
+    }
     
-    create_background();
-    create_label(&jet_mono_light_32, 10, 10, message);
-    create_sensor_co2(&jet_mono_light_32, &jet_mono_light_32);
-    create_sensor_temp(&noto_sans_jap, &jet_mono_light_32);
-    create_sensor_hum(&noto_sans_jap, &jet_mono_light_32);
+    // Create LVGL timer to update UI every 500ms
     create_sensor_labels();
     
-    // Start sensor task
+    // Start tasks
     xTaskCreate(scd_task, "scd_task", 4096, NULL, 5, NULL);
     xTaskCreate(on_off_button_task, "on_off_button_task", 4096, NULL, 5, NULL);
+    xTaskCreate(next_screen_button_task, "next_screen_button_task", 4096, NULL, 5, NULL);
     
     // LVGL task handler loop
     while (1) {
