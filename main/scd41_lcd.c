@@ -28,9 +28,17 @@ static SemaphoreHandle_t data_mutex = NULL;
 static lv_obj_t *label_co2 = NULL;
 static lv_obj_t *label_temp = NULL;
 static lv_obj_t *label_humid = NULL;
+static lv_obj_t *label_max_temp_data = NULL;
+static lv_obj_t *label_min_temp_data = NULL;
+
 static lv_obj_t *screen_sensor = NULL;
 static lv_obj_t *screen_temp_graph = NULL;
+static lv_obj_t *temp_chart = NULL;
+static lv_chart_series_t *temp_series = NULL;
+
 static int current_screen = 0;  // 0 = sensor screen, 1 = temp graph screen
+static float temp_buffer[20];  // Store last 20 temperature values
+static int temp_buffer_index = 0;
 
 extern void create_sensor_labels();
 extern void create_sensor_co2(const lv_font_t *font_label, const lv_font_t *font_value);
@@ -53,6 +61,8 @@ static void lvgl_update_timer_cb(lv_timer_t *timer)
             if (label_temp) {
                 snprintf(text_buffer, sizeof(text_buffer), ": %.1f C", sensor_data.temperature);
                 lv_label_set_text(label_temp, text_buffer);
+                // lv_label_set_text(label_max_temp_data, text_buffer);
+                // lv_label_set_text(label_min_temp_data, text_buffer);
             }
             
             if (label_humid) {
@@ -141,18 +151,109 @@ void create_temp_graph_screen()
 {
     extern lv_font_t jet_mono_light_32;
     
-    // Create temp screen
     screen_temp_graph = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(screen_temp_graph, lv_color_make(0, 0, 0), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(screen_temp_graph, LV_OPA_COVER, LV_PART_MAIN);
     
-    // Add text
+    // Title
     lv_obj_t *label_temp_graph = lv_label_create(screen_temp_graph);
-    lv_label_set_text(label_temp_graph, "Temp Graph");
+    lv_label_set_text(label_temp_graph, "Temperature");
     lv_obj_set_style_text_font(label_temp_graph, &jet_mono_light_32, 0);
     lv_obj_set_style_text_color(label_temp_graph, lv_color_make(31, 31, 63), 0);
-    lv_obj_align(label_temp_graph, LV_ALIGN_TOP_MID, 0, 0);  // Center the text
+    lv_obj_set_pos(label_temp_graph, 20, 10);
+    
+    // Max label
+    lv_obj_t *label_max_temp = lv_label_create(screen_temp_graph);
+    lv_label_set_text(label_max_temp, "Max:");
+    lv_obj_set_style_text_font(label_max_temp, &jet_mono_light_32, 0);
+    lv_obj_set_style_text_color(label_max_temp, lv_color_make(31, 31, 63), 0);
+    lv_obj_set_pos(label_max_temp, 230, 60);
+
+    // Max data
+    label_max_temp_data = lv_label_create(screen_temp_graph);
+    lv_label_set_text(label_max_temp_data, "--");
+    lv_obj_set_style_text_font(label_max_temp_data, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(label_max_temp_data, lv_color_make(31, 31, 63), 0);
+    lv_obj_set_pos(label_max_temp_data, 230, 90);
+    
+    // Min label
+    lv_obj_t *label_min_temp = lv_label_create(screen_temp_graph);
+    lv_label_set_text(label_min_temp, "Min:");
+    lv_obj_set_style_text_font(label_min_temp, &jet_mono_light_32, 0);
+    lv_obj_set_style_text_color(label_min_temp, lv_color_make(31, 31, 63), 0);
+    lv_obj_set_pos(label_min_temp, 230, 130);
+    
+    // Min data
+    label_min_temp_data = lv_label_create(screen_temp_graph);
+    lv_label_set_text(label_min_temp_data, "--");
+    lv_obj_set_style_text_font(label_min_temp_data, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(label_min_temp_data, lv_color_make(31, 31, 63), 0);
+    lv_obj_set_pos(label_min_temp_data, 230, 160);
+
+
+    // Create scale for Y-axis
+    lv_obj_t *scale = lv_scale_create(screen_temp_graph);
+    lv_obj_set_size(scale, 25, 160);
+    lv_obj_set_pos(scale, 5, 70);
+    lv_scale_set_mode(scale, LV_SCALE_MODE_VERTICAL_LEFT);
+    lv_scale_set_range(scale, 0, 60);
+    lv_scale_set_total_tick_count(scale, 7);
+    lv_scale_set_major_tick_every(scale, 1);
+    lv_obj_set_style_text_font(scale, &lv_font_montserrat_10, 0);
+    lv_obj_set_style_text_color(scale, lv_color_make(20, 20, 40), 0);
+    lv_obj_set_style_line_color(scale, lv_color_make(15, 15, 30), LV_PART_INDICATOR);
+    lv_obj_set_style_length(scale, 5, LV_PART_INDICATOR);
+    
+    // Create chart
+    temp_chart = lv_chart_create(screen_temp_graph);
+    lv_obj_set_size(temp_chart, 190, 160);
+    lv_obj_set_pos(temp_chart, 30, 70);
+    
+    // Chart styling
+    lv_obj_set_style_bg_color(temp_chart, lv_color_make(0, 0, 0), LV_PART_MAIN);
+    lv_obj_set_style_border_width(temp_chart, 1, LV_PART_MAIN);
+    lv_obj_set_style_border_color(temp_chart, lv_color_make(15, 15, 31), LV_PART_MAIN);
+    lv_obj_set_style_pad_all(temp_chart, 5, LV_PART_MAIN);
+    
+    // Configure chart
+    lv_chart_set_type(temp_chart, LV_CHART_TYPE_LINE);
+    lv_chart_set_point_count(temp_chart, 12);
+    lv_chart_set_range(temp_chart, LV_CHART_AXIS_PRIMARY_Y, 0, 60);
+    lv_chart_set_update_mode(temp_chart, LV_CHART_UPDATE_MODE_SHIFT);
+    lv_chart_set_div_line_count(temp_chart, 5, 0);
+    
+    // Grid styling
+    lv_obj_set_style_line_color(temp_chart, lv_color_make(10, 10, 20), LV_PART_MAIN);
+    lv_obj_set_style_line_width(temp_chart, 1, LV_PART_MAIN);
+    
+    // Add series
+    temp_series = lv_chart_add_series(temp_chart, lv_color_make(31, 20, 50), LV_CHART_AXIS_PRIMARY_Y);
+    
+    // Style the line
+    lv_obj_set_style_line_width(temp_chart, 3, LV_PART_ITEMS);
+    lv_obj_set_style_bg_opa(temp_chart, LV_OPA_50, LV_PART_ITEMS);
+    lv_obj_set_style_bg_color(temp_chart, lv_color_make(31, 20, 50), LV_PART_ITEMS);
+    
+    // Initialize
+    for (int i = 0; i < 20; i++) {
+        lv_chart_set_next_value(temp_chart, temp_series, 0);
+    }
+    
+    lv_chart_refresh(temp_chart);
 }
+
+
+void update_chart_with_temp(uint16_t temp_value)
+{
+
+    if (temp_chart && temp_series) {
+        lvgl_port_lock(0);
+        lv_chart_set_next_value(temp_chart, temp_series, temp_value);
+        lv_chart_refresh(temp_chart);
+        lvgl_port_unlock();
+    }
+}
+
 
 void create_sensor_labels()
 {
@@ -186,7 +287,7 @@ void on_off_button_task(void *arg)
             current_state = gpio_get_level(ON_OFF_BUTTON);
             
             if (!current_state) {
-                ESP_LOGI(TAG, "Button PRESSED");
+                ESP_LOGI(TAG, "Power button PRESSED");
                 
                 screen_state = !screen_state;
                 
@@ -271,6 +372,9 @@ void scd_task(void *arg)
     ESP_ERROR_CHECK(scd41_init(&config));
     ESP_ERROR_CHECK(scd41_start_measurement());
     
+    for (int i = 0; i <= 20; i++) {
+        temp_buffer[i] = 1.0;
+    }
     // Wait for first measurement (5 seconds)
     vTaskDelay(pdMS_TO_TICKS(5000));
     
@@ -285,6 +389,13 @@ void scd_task(void *arg)
             if (xSemaphoreTake(data_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
                 sensor_data = data;
                 xSemaphoreGive(data_mutex);
+            }
+            update_chart_with_temp(data.temperature);
+            ESP_LOGI(TAG, "buffer data: %.1f, index: %d ", temp_buffer[temp_buffer_index],
+                     temp_buffer_index);
+            temp_buffer_index++;
+            if (temp_buffer_index > 20) {
+                temp_buffer_index = 0;
             }
         } else {
             ESP_LOGW(TAG, "Failed to read sensor data");
@@ -314,6 +425,7 @@ void app_main(void)
     
     // Create LVGL timer to update UI every 500ms
     create_sensor_labels();
+
     
     // Start tasks
     xTaskCreate(scd_task, "scd_task", 4096, NULL, 5, NULL);
