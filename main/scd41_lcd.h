@@ -21,9 +21,9 @@
 #define DEBOUNCE_TIME_MS 50
 
 static const char *TAG = "SCD41";
-
 scd41_data_t sensor_data = {0};
 static SemaphoreHandle_t data_mutex = NULL;
+static SemaphoreHandle_t task_sync_mutex = NULL;
 
 static lv_obj_t *label_co2 = NULL;
 static lv_obj_t *label_temp = NULL;
