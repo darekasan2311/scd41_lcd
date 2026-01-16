@@ -1,69 +1,6 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "freertos/semphr.h"
-#include "driver/gpio.h"
-#include "esp_log.h"
-#include "esp_err.h"
-#include "esp_timer.h"
-#include "esp_task_wdt.h"
 #include "st7789.h"
 #include "scd41.h"
-#include "driver/i2c.h"
-
-// SCD41 I2C config
-#define I2C_MASTER_SCL_IO 22
-#define I2C_MASTER_SDA_IO 21
-#define I2C_MASTER_FREQ_HZ 100000
-
-// GPIO config
-#define ON_OFF_BUTTON GPIO_NUM_32
-#define NEXT_SCREEN_BUTTON GPIO_NUM_33
-#define DEBOUNCE_TIME_MS 50
-
-static const char *TAG = "SCD41";
-
-scd41_data_t sensor_data = {0};
-static SemaphoreHandle_t data_mutex = NULL;
-
-static lv_obj_t *label_co2 = NULL;
-static lv_obj_t *label_temp = NULL;
-static lv_obj_t *label_humid = NULL;
-
-static lv_obj_t *label_max_temp_data = NULL;
-static lv_obj_t *label_min_temp_data = NULL;
-
-static lv_obj_t *label_max_hum_data = NULL;
-static lv_obj_t *label_min_hum_data = NULL;
-
-static lv_obj_t *label_max_co2_data = NULL;
-static lv_obj_t *label_min_co2_data = NULL;
-
-static lv_obj_t *screen_sensor = NULL;
-
-static lv_obj_t *screen_temp_graph = NULL;
-static lv_obj_t *temp_chart = NULL;
-static lv_chart_series_t *temp_series = NULL;
-
-static lv_obj_t *screen_hum_graph = NULL;
-static lv_obj_t *hum_chart = NULL;
-static lv_chart_series_t *hum_series = NULL;
-
-static lv_obj_t *screen_co2_graph = NULL;
-static lv_obj_t *co2_chart = NULL;
-static lv_chart_series_t *co2_series = NULL;
-
-static int current_screen = 0;
-static scd41_data_t data_buffer[12]; //data buffer
-static int data_buffer_index = 0;
-
-static float min_temp = 0.0f;
-static float max_temp = 0.0f;
-static int min_co2 = 0;
-static int max_co2 = 0;
-static float min_hum = 0.0f;
-static float max_hum = 0.0f;
+#include "scd41_lcd.h"
 
 extern void create_sensor_labels();
 extern void create_sensor_co2(const lv_font_t *font_label, const lv_font_t *font_value);
@@ -211,14 +148,14 @@ void create_graph_screen(lv_obj_t **graph, lv_obj_t **lv_max_data, lv_obj_t **lv
     lv_label_set_text(label_max, "Max:");
     lv_obj_set_style_text_font(label_max, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(label_max, lv_color_make(0, 31, 0), 0);
-    lv_obj_set_pos(label_max, 70, 220);
+    lv_obj_set_pos(label_max, 60, 220);
 
     // Max data
     *lv_max_data = lv_label_create(*graph);
     lv_label_set_text(*lv_max_data, " --");
     lv_obj_set_style_text_font(*lv_max_data, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(*lv_max_data, lv_color_make(31, 31, 63), 0);
-    lv_obj_set_pos(*lv_max_data, 100, 220);
+    lv_obj_set_pos(*lv_max_data, 90, 220);
 
     // Min label
     lv_obj_t *label_min = lv_label_create(*graph);
@@ -237,7 +174,7 @@ void create_graph_screen(lv_obj_t **graph, lv_obj_t **lv_max_data, lv_obj_t **lv
     // Create scale for Y-axis
     lv_obj_t *scale_y = lv_scale_create(*graph);
     lv_obj_set_size(scale_y, 25, 167);
-    lv_obj_set_pos(scale_y, 5, 17);
+    lv_obj_set_pos(scale_y, 15, 17);
     lv_scale_set_mode(scale_y, LV_SCALE_MODE_VERTICAL_LEFT);
     lv_scale_set_range(scale_y, 0, y_high_lim);
     lv_scale_set_total_tick_count(scale_y, 9);
@@ -280,7 +217,7 @@ void create_graph_screen(lv_obj_t **graph, lv_obj_t **lv_max_data, lv_obj_t **lv
     // Create chart
     *chart = lv_chart_create(*graph);
     lv_obj_set_size(*chart, 260, 180);
-    lv_obj_set_pos(*chart, 30, 10);
+    lv_obj_set_pos(*chart, 40, 10);
     
     // Chart styling
     lv_obj_set_style_bg_color(*chart, lv_color_make(0, 0, 0), LV_PART_MAIN);
@@ -376,7 +313,6 @@ void on_off_button_task(void *arg)
                 
                 screen_state = !screen_state;
                 
-                // Just toggle the backlight GPIO
                 gpio_set_level(PIN_NUM_BK_LIGHT, screen_state ? 1 : 0);
                 ESP_LOGI(TAG, "Backlight %s", screen_state ? "ON" : "OFF");
             }
