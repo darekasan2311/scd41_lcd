@@ -6,5 +6,5 @@ idf_component_register(
     "jb_mono_reg_24.c"
     "jb_mono_bold_64.c"
                     INCLUDE_DIRS "."
-                    REQUIRES st7789 driver esp_timer
+                    REQUIRES st7789 driver esp_timer esp_wifi nvs_flash
                     )
