@@ -32,8 +32,8 @@ static lv_obj_t *screen_sensor = NULL;
 
 extern void create_sensor_labels();
 extern void create_sensor_co2(const lv_font_t *font_label, const lv_font_t *font_value);
-extern void create_sensor_temp(const lv_font_t *font_label, const lv_font_t *font_value);
-extern void create_sensor_hum(const lv_font_t *font_label, const lv_font_t *font_value);
+extern void create_sensor_temp(const lv_font_t *font_mark, const lv_font_t *font_label, const lv_font_t *font_value);
+extern void create_sensor_hum(const lv_font_t *font_mark, const lv_font_t *font_label, const lv_font_t *font_value);
 
 // LVGL timer callback - runs in LVGL context
 static void lvgl_update_timer_cb(lv_timer_t *timer)
@@ -42,17 +42,22 @@ static void lvgl_update_timer_cb(lv_timer_t *timer)
     
     if (sensor_data.data_ready) {
         if (label_co2) {
-            snprintf(text_buffer, sizeof(text_buffer), " %d ", sensor_data.co2_ppm);
+            if (sensor_data.co2_ppm > 1000) {
+                lv_obj_set_pos(label_co2, 63, 260);
+            } else {
+                lv_obj_set_pos(label_co2, 80, 260);
+            }
+            snprintf(text_buffer, sizeof(text_buffer), "%d", sensor_data.co2_ppm);
             lv_label_set_text(label_co2, text_buffer);
         }
         
         if (label_temp) {
-            snprintf(text_buffer, sizeof(text_buffer), " %.1f ", sensor_data.temperature);
+            snprintf(text_buffer, sizeof(text_buffer), "%.1f", sensor_data.temperature);
             lv_label_set_text(label_temp, text_buffer);
         }
         
         if (label_humid) {
-            snprintf(text_buffer, sizeof(text_buffer), " %.1f ", sensor_data.humidity);
+            snprintf(text_buffer, sizeof(text_buffer), "%.1f", sensor_data.humidity);
             lv_label_set_text(label_humid, text_buffer);
         }
     }
@@ -62,28 +67,40 @@ static void lvgl_update_timer_cb(lv_timer_t *timer)
 void create_sensor_co2(const lv_font_t *font_label, const lv_font_t *font_value)
 {
     // CO2 Label and Value
-    // lv_obj_t *label_co2_text = lv_label_create(screen_sensor);  // Changed from lv_screen_active()
-    // lv_label_set_text(label_co2_text, "CO2");
-    // lv_obj_set_style_text_font(label_co2_text, font_label, 0);
-    // lv_obj_set_style_text_color(label_co2_text, lv_color_make(31, 31, 63), 0);
-    // lv_obj_set_pos(label_co2_text, 10, 60);
+    lv_obj_t *label_co2_text = lv_label_create(screen_sensor);  // Changed from lv_screen_active()
+    lv_label_set_text(label_co2_text, "CO2");
+    lv_obj_set_style_text_font(label_co2_text, font_label, 0);
+    lv_obj_set_style_text_color(label_co2_text, lv_color_make(31, 31, 63), 0);
+    lv_obj_set_pos(label_co2_text, 10, 250);
     
+    lv_obj_t *label_co2_mark = lv_label_create(screen_sensor);  // Changed
+    lv_label_set_text(label_co2_mark, "ppm");
+    lv_obj_set_style_text_font(label_co2_mark, font_label, 0);
+    lv_obj_set_style_text_color(label_co2_mark, lv_color_make(31, 31, 63), 0);
+    lv_obj_set_pos(label_co2_mark, 190, 250);
+
     label_co2 = lv_label_create(screen_sensor);  // Changed from lv_screen_active()
-    lv_label_set_text(label_co2, " -- ");
+    lv_label_set_text(label_co2, "   -- ");
     lv_obj_set_style_text_font(label_co2, font_value, 0);
     lv_obj_set_style_text_color(label_co2, lv_color_make(31, 31, 63), 0);
-    lv_obj_set_pos(label_co2, 80, 260);
+    lv_obj_set_pos(label_co2, 70, 260);
 }
 
-void create_sensor_temp(const lv_font_t *font_label, const lv_font_t *font_value)
+void create_sensor_temp(const lv_font_t *font_mark, const lv_font_t *font_label, const lv_font_t *font_value)
 {
     // Temperature Label and Value
-    // lv_obj_t *label_temp_text = lv_label_create(screen_sensor);  // Changed
-    // lv_label_set_text(label_temp_text, "湿度");
-    // lv_obj_set_style_text_font(label_temp_text, font_label, 0);
-    // lv_obj_set_style_text_color(label_temp_text, lv_color_make(31, 31, 63), 0);
-    // lv_obj_set_pos(label_temp_text, 10, 110);
+    lv_obj_t *label_temp_text = lv_label_create(screen_sensor);  // Changed
+    lv_label_set_text(label_temp_text, "湿度");
+    lv_obj_set_style_text_font(label_temp_text, font_label, 0);
+    lv_obj_set_style_text_color(label_temp_text, lv_color_make(31, 31, 63), 0);
+    lv_obj_set_pos(label_temp_text, 10, 170);
     
+    lv_obj_t *label_temp_mark = lv_label_create(screen_sensor);  // Changed
+    lv_label_set_text(label_temp_mark, "°C");
+    lv_obj_set_style_text_font(label_temp_mark, font_mark, 0);
+    lv_obj_set_style_text_color(label_temp_mark, lv_color_make(31, 31, 63), 0);
+    lv_obj_set_pos(label_temp_mark, 80, 170);
+
     label_temp = lv_label_create(screen_sensor);  // Changed
     lv_label_set_text(label_temp, " -- ");
     lv_obj_set_style_text_font(label_temp, font_value, 0);
@@ -91,15 +108,21 @@ void create_sensor_temp(const lv_font_t *font_label, const lv_font_t *font_value
     lv_obj_set_pos(label_temp, 5, 200);
 }
 
-void create_sensor_hum(const lv_font_t *font_label, const lv_font_t *font_value)
+void create_sensor_hum(const lv_font_t *font_mark, const lv_font_t *font_label, const lv_font_t *font_value)
 {
     // Humidity Label and Value
-    // lv_obj_t *label_humid_text = lv_label_create(screen_sensor);  // Changed
-    // lv_label_set_text(label_humid_text, "温度");
-    // lv_obj_set_style_text_font(label_humid_text, font_label, 0);
-    // lv_obj_set_style_text_color(label_humid_text, lv_color_make(31, 31, 63), 0);
-    // lv_obj_set_pos(label_humid_text, 10, 160);
+    lv_obj_t *label_humid_text = lv_label_create(screen_sensor);  // Changed
+    lv_label_set_text(label_humid_text, "温度");
+    lv_obj_set_style_text_font(label_humid_text, font_label, 0);
+    lv_obj_set_style_text_color(label_humid_text, lv_color_make(31, 31, 63), 0);
+    lv_obj_set_pos(label_humid_text, 130, 170);
     
+    lv_obj_t *label_humid_mark = lv_label_create(screen_sensor);  // Changed
+    lv_label_set_text(label_humid_mark, "%");
+    lv_obj_set_style_text_font(label_humid_mark, font_mark, 0);
+    lv_obj_set_style_text_color(label_humid_mark, lv_color_make(31, 31, 63), 0);
+    lv_obj_set_pos(label_humid_mark, 210, 170);
+
     label_humid = lv_label_create(screen_sensor);  // Changed
     lv_label_set_text(label_humid, " -- ");
     lv_obj_set_style_text_font(label_humid, font_value, 0);
@@ -157,9 +180,10 @@ void create_sensor_lines()
 void create_sensor_screen()
 {
     extern lv_font_t jet_mono_light_32;
-    extern lv_font_t noto_sans_jap;
+    extern lv_font_t noto_sans_jp_24;
     extern lv_font_t jb_mono_bold_48;
     extern lv_font_t jb_mono_bold_64;
+    extern lv_font_t jb_mono_reg_24;
     
     // Create sensor screen
     screen_sensor = lv_obj_create(NULL);
@@ -175,9 +199,9 @@ void create_sensor_screen()
     lv_obj_set_pos(label_title, 10, 10);
     
     // Create sensor labels
-    create_sensor_co2(&jb_mono_bold_48, &jb_mono_bold_48);
-    create_sensor_temp(&noto_sans_jap, &jet_mono_light_32);
-    create_sensor_hum(&noto_sans_jap, &jet_mono_light_32);
+    create_sensor_co2(&jb_mono_reg_24, &jb_mono_bold_48);
+    create_sensor_temp(&jb_mono_reg_24, &noto_sans_jp_24, &jet_mono_light_32);
+    create_sensor_hum(&jb_mono_reg_24, &noto_sans_jp_24, &jet_mono_light_32);
 }
 
 void create_sensor_labels()
@@ -306,7 +330,6 @@ void scd_task(void *arg)
         
         if (ret == ESP_OK && data.data_ready) {
             sensor_data = data;
-
         } else {
             ESP_LOGW(TAG, "Failed to read sensor data");
         }
