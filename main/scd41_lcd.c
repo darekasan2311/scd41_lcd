@@ -1,4 +1,6 @@
 #include <stdio.h>
+#include <string.h>
+#include <sys/time.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/gpio.h"
@@ -7,10 +9,13 @@
 #include "esp_err.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
+#include "esp_sntp.h"
 #include "nvs_flash.h"
 #include "esp_event.h"
+
 #include "st7789.h"
 #include "scd41.h"
+#include "wifi_connect.h"
 
 // SCD41 I2C config
 #define I2C_MASTER_SCL_IO 22
@@ -21,22 +26,6 @@
 #define ON_OFF_BUTTON GPIO_NUM_32
 #define NEXT_SCREEN_BUTTON GPIO_NUM_33
 #define DEBOUNCE_TIME_MS 50
-
-#define WIFI_SSID "kbk"
-#define WIFI_PASSWORD "keiyobend1521"
-#define WIFI_AUTHMODE WIFI_AUTH_WPA2_PSK
-
-#define WIFI_CONNECTED_BIT BIT0
-#define WIFI_FAIL_BIT BIT1
-
-static const int WIFI_RETRY_ATTEMPT = 3;
-static int wifi_retry_count = 0;
-
-static esp_netif_t *tutorial_netif = NULL;
-static esp_event_handler_instance_t ip_event_handler;
-static esp_event_handler_instance_t wifi_event_handler;
-
-static EventGroupHandle_t s_wifi_event_group = NULL;
 
 
 static const char *TAG = "SCD41";
@@ -54,191 +43,60 @@ extern void create_sensor_co2(const lv_font_t *font_label, const lv_font_t *font
 extern void create_sensor_temp(const lv_font_t *font_mark, const lv_font_t *font_label, const lv_font_t *font_value);
 extern void create_sensor_hum(const lv_font_t *font_mark, const lv_font_t *font_label, const lv_font_t *font_value);
 
-
-static void ip_event_cb(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
+void time_sync_notification_cb(struct timeval *tv)
 {
-    ESP_LOGI(TAG, "Handling IP event, event code 0x%" PRIx32, event_id);
-    switch (event_id)
-    {
-    case (IP_EVENT_STA_GOT_IP):
-        ip_event_got_ip_t *event_ip = (ip_event_got_ip_t *)event_data;
-        ESP_LOGI(TAG, "Got IP: " IPSTR, IP2STR(&event_ip->ip_info.ip));
-        wifi_retry_count = 0;
-        xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
-        break;
-    case (IP_EVENT_STA_LOST_IP):
-        ESP_LOGI(TAG, "Lost IP");
-        break;
-    case (IP_EVENT_GOT_IP6):
-        ip_event_got_ip6_t *event_ip6 = (ip_event_got_ip6_t *)event_data;
-        ESP_LOGI(TAG, "Got IPv6: " IPV6STR, IPV62STR(event_ip6->ip6_info.ip));
-        wifi_retry_count = 0;
-        xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
-        break;
-    default:
-        ESP_LOGI(TAG, "IP event not handled");
-        break;
-    }
+    ESP_LOGI(TAG, "Time synchronized!");
 }
 
-static void wifi_event_cb(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
+void initialize_sntp(void)
 {
-    ESP_LOGI(TAG, "Handling Wi-Fi event, event code 0x%" PRIx32, event_id);
-
-    switch (event_id)
-    {
-    case (WIFI_EVENT_WIFI_READY):
-        ESP_LOGI(TAG, "Wi-Fi ready");
-        break;
-    case (WIFI_EVENT_SCAN_DONE):
-        ESP_LOGI(TAG, "Wi-Fi scan done");
-        break;
-    case (WIFI_EVENT_STA_START):
-        ESP_LOGI(TAG, "Wi-Fi started, connecting to AP...");
-        esp_wifi_connect();
-        break;
-    case (WIFI_EVENT_STA_STOP):
-        ESP_LOGI(TAG, "Wi-Fi stopped");
-        break;
-    case (WIFI_EVENT_STA_CONNECTED):
-        ESP_LOGI(TAG, "Wi-Fi connected");
-        break;
-    case (WIFI_EVENT_STA_DISCONNECTED):
-        ESP_LOGI(TAG, "Wi-Fi disconnected");
-        if (wifi_retry_count < WIFI_RETRY_ATTEMPT) {
-            ESP_LOGI(TAG, "Retrying to connect to Wi-Fi network...");
-            esp_wifi_connect();
-            wifi_retry_count++;
-        } else {
-            ESP_LOGI(TAG, "Failed to connect to Wi-Fi network");
-            xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
-        }
-        break;
-    case (WIFI_EVENT_STA_AUTHMODE_CHANGE):
-        ESP_LOGI(TAG, "Wi-Fi authmode changed");
-        break;
-    default:
-        ESP_LOGI(TAG, "Wi-Fi event not handled");
-        break;
-    }
+    ESP_LOGI(TAG, "Initializing SNTP");
+    
+    // Set notification callback for time synchronization
+    esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
+    
+    // Set SNTP server (you can use multiple servers)
+    esp_sntp_setservername(0, "pool.ntp.org");
+    esp_sntp_setservername(1, "time.google.com");
+    
+    // Set time sync notification callback
+    esp_sntp_set_time_sync_notification_cb(time_sync_notification_cb);
+    
+    // Initialize SNTP
+    esp_sntp_init();
 }
 
-
-esp_err_t tutorial_init(void)
+void obtain_time(void)
 {
-    // Initialize Non-Volatile Storage (NVS)
-    esp_err_t ret = nvs_flash_init();
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_ERROR_CHECK(nvs_flash_erase());
-        ret = nvs_flash_init();
+    initialize_sntp();
+    
+    // Wait for time to be set
+    time_t now = 0;
+    struct tm timeinfo = { 0 };
+    int retry = 0;
+    const int retry_count = 15;
+    
+    while (esp_sntp_get_sync_status() == SNTP_SYNC_STATUS_RESET && ++retry < retry_count) {
+        ESP_LOGI(TAG, "Waiting for system time to be set... (%d/%d)", retry, retry_count);
+        vTaskDelay(2000 / portTICK_PERIOD_MS);
     }
-
-    s_wifi_event_group = xEventGroupCreate();
-
-    ret = esp_netif_init();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to initialize TCP/IP network stack");
-        return ret;
-    }
-
-    ret = esp_event_loop_create_default();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to create default event loop");
-        return ret;
-    }
-
-    ret = esp_wifi_set_default_wifi_sta_handlers();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to set default handlers");
-        return ret;
-    }
-
-    tutorial_netif = esp_netif_create_default_wifi_sta();
-    if (tutorial_netif == NULL) {
-        ESP_LOGE(TAG, "Failed to create default WiFi STA interface");
-        return ESP_FAIL;
-    }
-
-    // Wi-Fi stack configuration parameters
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT,
-                                                        ESP_EVENT_ANY_ID,
-                                                        &wifi_event_cb,
-                                                        NULL,
-                                                        &wifi_event_handler));
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT,
-                                                        ESP_EVENT_ANY_ID,
-                                                        &ip_event_cb,
-                                                        NULL,
-                                                        &ip_event_handler));
-    return ret;
+    
+    time(&now);
+    localtime_r(&now, &timeinfo);
 }
 
-esp_err_t tutorial_connect(char* wifi_ssid, char* wifi_password)
+void print_current_time(void)
 {
-    wifi_config_t wifi_config = {
-        .sta = {
-            // this sets the weakest authmode accepted in fast scan mode (default)
-            .threshold.authmode = WIFI_AUTHMODE,
-        },
-    };
-
-    strncpy((char*)wifi_config.sta.ssid, wifi_ssid, sizeof(wifi_config.sta.ssid));
-    strncpy((char*)wifi_config.sta.password, wifi_password, sizeof(wifi_config.sta.password));
-
-    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE)); // default is WIFI_PS_MIN_MODEM
-    ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM)); // default is WIFI_STORAGE_FLASH
-
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
-
-    ESP_LOGI(TAG, "Connecting to Wi-Fi network: %s", wifi_config.sta.ssid);
-    ESP_ERROR_CHECK(esp_wifi_start());
-
-    EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
-        pdFALSE, pdFALSE, portMAX_DELAY);
-
-    if (bits & WIFI_CONNECTED_BIT) {
-        ESP_LOGI(TAG, "Connected to Wi-Fi network: %s", wifi_config.sta.ssid);
-        return ESP_OK;
-    } else if (bits & WIFI_FAIL_BIT) {
-        ESP_LOGE(TAG, "Failed to connect to Wi-Fi network: %s", wifi_config.sta.ssid);
-        return ESP_FAIL;
-    }
-
-    ESP_LOGE(TAG, "Unexpected Wi-Fi error");
-    return ESP_FAIL;
+    time_t now;
+    struct tm timeinfo;
+    char strftime_buf[64];
+    
+    time(&now);
+    localtime_r(&now, &timeinfo);
+    
+    strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
+    ESP_LOGI(TAG, "Current time: %s", strftime_buf);
 }
-
-esp_err_t tutorial_disconnect(void)
-{
-    if (s_wifi_event_group) {
-        vEventGroupDelete(s_wifi_event_group);
-    }
-
-    return esp_wifi_disconnect();
-}
-
-esp_err_t tutorial_deinit(void)
-{
-    esp_err_t ret = esp_wifi_stop();
-    if (ret == ESP_ERR_WIFI_NOT_INIT) {
-        ESP_LOGE(TAG, "Wi-Fi stack not initialized");
-        return ret;
-    }
-
-    ESP_ERROR_CHECK(esp_wifi_deinit());
-    ESP_ERROR_CHECK(esp_wifi_clear_default_wifi_driver_and_handlers(tutorial_netif));
-    esp_netif_destroy(tutorial_netif);
-
-    ESP_ERROR_CHECK(esp_event_handler_instance_unregister(IP_EVENT, ESP_EVENT_ANY_ID, ip_event_handler));
-    ESP_ERROR_CHECK(esp_event_handler_instance_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, wifi_event_handler));
-
-    return ESP_OK;
-}
-
 
 // LVGL timer callback - runs in LVGL context
 static void lvgl_update_timer_cb(lv_timer_t *timer)
@@ -557,11 +415,11 @@ void app_main(void)
     
     create_sensor_labels();
 
-    ESP_LOGI(TAG, "Start of tutorial...");
+    ESP_LOGI(TAG, "Start of wifi connection...");
 
-    ESP_ERROR_CHECK(tutorial_init());
+    ESP_ERROR_CHECK(w_init());
 
-    esp_err_t ret = tutorial_connect(WIFI_SSID, WIFI_PASSWORD);
+    esp_err_t ret = w_connect(WIFI_SSID, WIFI_PASSWORD);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to connect to Wi-Fi network");
     }
@@ -584,19 +442,30 @@ void app_main(void)
         vTaskDelay(pdMS_TO_TICKS(5000));
     }
 
-    ESP_ERROR_CHECK(tutorial_disconnect());
-
-    ESP_ERROR_CHECK(tutorial_deinit());
-
-    ESP_LOGI(TAG, "End of tutorial...");
-
+    setenv("TZ", "JST-9", 1);  // Japan Standard Time (UTC+9)
+    tzset();
     
-    xTaskCreate(scd_task, "scd_task", 4096, NULL, 5, NULL);
-    xTaskCreate(on_off_button_task, "on_off_button_task", 4096, NULL, 5, NULL);
-    // xTaskCreate(next_screen_button_task, "next_screen_button_task", 4096, NULL, 5, NULL);
+    // Get time from SNTP
+    obtain_time();
     
+    // Print time every 10 seconds
     while (1) {
-        lv_timer_handler();
-        vTaskDelay(pdMS_TO_TICKS(10));
+        print_current_time();
+        vTaskDelay(10000 / portTICK_PERIOD_MS);
     }
+    // ESP_ERROR_CHECK(w_disconnect());
+    //
+    // ESP_ERROR_CHECK(w_deinit());
+    //
+    // ESP_LOGI(TAG, "End of wifi connection...");
+
+    
+    // xTaskCreate(scd_task, "scd_task", 4096, NULL, 5, NULL);
+    // xTaskCreate(on_off_button_task, "on_off_button_task", 4096, NULL, 5, NULL);
+    // // xTaskCreate(next_screen_button_task, "next_screen_button_task", 4096, NULL, 5, NULL);
+    //
+    // while (1) {
+    //     lv_timer_handler();
+    //     vTaskDelay(pdMS_TO_TICKS(10));
+    // }
 }
