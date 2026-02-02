@@ -16,6 +16,7 @@
 #include "st7789.h"
 #include "scd41.h"
 #include "wifi_connect.h"
+#include "scd41_lcd.h"
 
 // SCD41 I2C config
 #define I2C_MASTER_SCL_IO 22
@@ -33,10 +34,14 @@ static const char *TAG = "SCD41";
 // static scd41_data_t data_buffer[12]; //data buffer
 // static int data_buffer_index = 0;
 scd41_data_t sensor_data = {0};
+struct tm time_data = {0};
+
 static lv_obj_t *label_co2 = NULL;
 static lv_obj_t *label_temp = NULL;
 static lv_obj_t *label_humid = NULL;
 static lv_obj_t *screen_sensor = NULL;
+static lv_obj_t *label_time = NULL;
+static lv_obj_t *label_date = NULL;
 
 extern void create_sensor_labels();
 extern void create_sensor_co2(const lv_font_t *font_label, const lv_font_t *font_value);
@@ -72,7 +77,7 @@ void obtain_time(void)
     
     // Wait for time to be set
     time_t now = 0;
-    struct tm timeinfo = { 0 };
+    struct tm timeinfo = {0};
     int retry = 0;
     const int retry_count = 15;
     
@@ -94,6 +99,8 @@ void print_current_time(void)
     time(&now);
     localtime_r(&now, &timeinfo);
     
+    time_data = timeinfo;
+
     strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
     ESP_LOGI(TAG, "Current time: %s", strftime_buf);
 }
@@ -123,6 +130,11 @@ static void lvgl_update_timer_cb(lv_timer_t *timer)
             snprintf(text_buffer, sizeof(text_buffer), "%.1f", sensor_data.humidity);
             lv_label_set_text(label_humid, text_buffer);
         }
+        strftime(text_buffer, sizeof(text_buffer), "%I:%M %p", &time_data);
+        lv_label_set_text(label_time, text_buffer);
+
+        strftime(text_buffer, sizeof(text_buffer), "%Y/%m/%d", &time_data);
+        lv_label_set_text(label_date, text_buffer);
     }
 }
 // in lv_color_make order is BRG with RGB565 notation
@@ -133,19 +145,19 @@ void create_sensor_co2(const lv_font_t *font_label, const lv_font_t *font_value)
     lv_obj_t *label_co2_text = lv_label_create(screen_sensor);  // Changed from lv_screen_active()
     lv_label_set_text(label_co2_text, "CO2");
     lv_obj_set_style_text_font(label_co2_text, font_label, 0);
-    lv_obj_set_style_text_color(label_co2_text, lv_color_make(31, 31, 63), 0);
+    lv_obj_set_style_text_color(label_co2_text, COLOR_DARK_PURPLE, 0);
     lv_obj_set_pos(label_co2_text, 10, 250);
     
     lv_obj_t *label_co2_mark = lv_label_create(screen_sensor);  // Changed
     lv_label_set_text(label_co2_mark, "ppm");
     lv_obj_set_style_text_font(label_co2_mark, font_label, 0);
-    lv_obj_set_style_text_color(label_co2_mark, lv_color_make(31, 31, 63), 0);
+    lv_obj_set_style_text_color(label_co2_mark, COLOR_DARK_PURPLE, 0);
     lv_obj_set_pos(label_co2_mark, 190, 250);
 
     label_co2 = lv_label_create(screen_sensor);  // Changed from lv_screen_active()
     lv_label_set_text(label_co2, "   -- ");
     lv_obj_set_style_text_font(label_co2, font_value, 0);
-    lv_obj_set_style_text_color(label_co2, lv_color_make(31, 31, 63), 0);
+    lv_obj_set_style_text_color(label_co2, COLOR_ORANGE, 0);
     lv_obj_set_pos(label_co2, 70, 260);
 }
 
@@ -155,19 +167,19 @@ void create_sensor_temp(const lv_font_t *font_mark, const lv_font_t *font_label,
     lv_obj_t *label_temp_text = lv_label_create(screen_sensor);  // Changed
     lv_label_set_text(label_temp_text, "湿度");
     lv_obj_set_style_text_font(label_temp_text, font_label, 0);
-    lv_obj_set_style_text_color(label_temp_text, lv_color_make(31, 31, 63), 0);
+    lv_obj_set_style_text_color(label_temp_text, COLOR_DARK_PURPLE, 0);
     lv_obj_set_pos(label_temp_text, 10, 170);
     
     lv_obj_t *label_temp_mark = lv_label_create(screen_sensor);  // Changed
     lv_label_set_text(label_temp_mark, "°C");
     lv_obj_set_style_text_font(label_temp_mark, font_mark, 0);
-    lv_obj_set_style_text_color(label_temp_mark, lv_color_make(31, 31, 63), 0);
+    lv_obj_set_style_text_color(label_temp_mark, COLOR_DARK_PURPLE, 0);
     lv_obj_set_pos(label_temp_mark, 80, 170);
 
     label_temp = lv_label_create(screen_sensor);  // Changed
     lv_label_set_text(label_temp, " -- ");
     lv_obj_set_style_text_font(label_temp, font_value, 0);
-    lv_obj_set_style_text_color(label_temp, lv_color_make(31, 31, 63), 0);
+    lv_obj_set_style_text_color(label_temp, COLOR_ORANGE, 0);
     lv_obj_set_pos(label_temp, 5, 200);
 }
 
@@ -177,19 +189,19 @@ void create_sensor_hum(const lv_font_t *font_mark, const lv_font_t *font_label, 
     lv_obj_t *label_humid_text = lv_label_create(screen_sensor);  // Changed
     lv_label_set_text(label_humid_text, "温度");
     lv_obj_set_style_text_font(label_humid_text, font_label, 0);
-    lv_obj_set_style_text_color(label_humid_text, lv_color_make(31, 31, 63), 0);
+    lv_obj_set_style_text_color(label_humid_text, COLOR_DARK_PURPLE, 0);
     lv_obj_set_pos(label_humid_text, 130, 170);
     
     lv_obj_t *label_humid_mark = lv_label_create(screen_sensor);  // Changed
     lv_label_set_text(label_humid_mark, "%");
     lv_obj_set_style_text_font(label_humid_mark, font_mark, 0);
-    lv_obj_set_style_text_color(label_humid_mark, lv_color_make(31, 31, 63), 0);
+    lv_obj_set_style_text_color(label_humid_mark, COLOR_DARK_PURPLE, 0);
     lv_obj_set_pos(label_humid_mark, 210, 170);
 
     label_humid = lv_label_create(screen_sensor);  // Changed
     lv_label_set_text(label_humid, " -- ");
     lv_obj_set_style_text_font(label_humid, font_value, 0);
-    lv_obj_set_style_text_color(label_humid, lv_color_make(31, 31, 63), 0);
+    lv_obj_set_style_text_color(label_humid, COLOR_ORANGE, 0);
     lv_obj_set_pos(label_humid, 125, 200);
 }
 
@@ -214,7 +226,7 @@ void create_sensor_lines()
 
     // Style the line
     lv_obj_set_style_line_width(line1, 2, 0);
-    lv_obj_set_style_line_color(line1, lv_color_make(31, 31, 63), 0);
+    lv_obj_set_style_line_color(line1, COLOR_ORANGE, 0);
 
     // Create line object
     lv_obj_t *line2 = lv_line_create(screen_sensor);
@@ -225,7 +237,7 @@ void create_sensor_lines()
 
     // Style the line
     lv_obj_set_style_line_width(line2, 2, 0);
-    lv_obj_set_style_line_color(line2, lv_color_make(31, 31, 63), 0);
+    lv_obj_set_style_line_color(line2, COLOR_ORANGE, 0);
 
     // Create line object
     lv_obj_t *line3 = lv_line_create(screen_sensor);
@@ -236,7 +248,7 @@ void create_sensor_lines()
 
     // Style the line
     lv_obj_set_style_line_width(line3, 2, 0);
-    lv_obj_set_style_line_color(line3, lv_color_make(31, 31, 63), 0);
+    lv_obj_set_style_line_color(line3, COLOR_ORANGE, 0);
 
 }
 // Create the sensor screen
@@ -250,17 +262,23 @@ void create_sensor_screen()
     
     // Create sensor screen
     screen_sensor = lv_obj_create(NULL);
-    lv_obj_set_style_bg_color(screen_sensor, lv_color_make(0, 0, 0), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(screen_sensor, COLOR_BLACK, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(screen_sensor, LV_OPA_COVER, LV_PART_MAIN);
     
     create_sensor_lines();
-    // Add title
-    lv_obj_t *label_title = lv_label_create(screen_sensor);
-    lv_label_set_text(label_title, "12:00");
-    lv_obj_set_style_text_font(label_title, &jb_mono_bold_64, 0);
-    lv_obj_set_style_text_color(label_title, lv_color_make(31, 31, 63), 0);
-    lv_obj_set_pos(label_title, 10, 10);
+    // Add time label
+    label_time = lv_label_create(screen_sensor);
+    lv_label_set_text(label_time, "00:00");
+    lv_obj_set_style_text_font(label_time, &jb_mono_bold_64, 0);
+    lv_obj_set_style_text_color(label_time, COLOR_ORANGE, 0);
+    lv_obj_set_pos(label_time, 20, 30);
     
+    label_date = lv_label_create(screen_sensor);
+    lv_label_set_text(label_date, "YYYY/mm/dd");
+    lv_obj_set_style_text_font(label_date, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(label_date, COLOR_CYAN, 0);
+    lv_obj_set_pos(label_date, 80, 90);
+
     // Create sensor labels
     create_sensor_co2(&jb_mono_reg_24, &jb_mono_bold_48);
     create_sensor_temp(&jb_mono_reg_24, &noto_sans_jp_24, &jet_mono_light_32);
@@ -401,20 +419,8 @@ void scd_task(void *arg)
     }
 }
 
-void app_main(void)
+void get_time_task(void *arg)
 {
-    init_lcd(0);  // LV_DISP_ROT_270 - old val
-    
-    if (lvgl_port_lock(0)) {
-        create_sensor_screen();
-        
-        lv_screen_load(screen_sensor);
-        
-        lvgl_port_unlock();
-    }
-    
-    create_sensor_labels();
-
     ESP_LOGI(TAG, "Start of wifi connection...");
 
     ESP_ERROR_CHECK(w_init());
@@ -437,8 +443,8 @@ void app_main(void)
         ESP_LOG_BUFFER_CHAR("SSID", ap_info.ssid, sizeof(ap_info.ssid));
         ESP_LOGI(TAG, "Primary Channel: %d", ap_info.primary);
         ESP_LOGI(TAG, "RSSI: %d", ap_info.rssi);
+        ESP_LOGI(TAG, "--------------------------------");
 
-        ESP_LOGI(TAG, "Disconnecting in 5 seconds...");
         vTaskDelay(pdMS_TO_TICKS(5000));
     }
 
@@ -453,19 +459,32 @@ void app_main(void)
         print_current_time();
         vTaskDelay(10000 / portTICK_PERIOD_MS);
     }
-    // ESP_ERROR_CHECK(w_disconnect());
-    //
-    // ESP_ERROR_CHECK(w_deinit());
-    //
-    // ESP_LOGI(TAG, "End of wifi connection...");
+}
 
+void app_main(void)
+{
+    init_lcd(0);  // LV_DISP_ROT_270 - old val
     
-    // xTaskCreate(scd_task, "scd_task", 4096, NULL, 5, NULL);
-    // xTaskCreate(on_off_button_task, "on_off_button_task", 4096, NULL, 5, NULL);
-    // // xTaskCreate(next_screen_button_task, "next_screen_button_task", 4096, NULL, 5, NULL);
-    //
-    // while (1) {
-    //     lv_timer_handler();
-    //     vTaskDelay(pdMS_TO_TICKS(10));
-    // }
+    if (lvgl_port_lock(0)) {
+        create_sensor_screen();
+        
+        lv_screen_load(screen_sensor);
+        
+        lvgl_port_unlock();
+    }
+    
+    create_sensor_labels();
+
+    xTaskCreate(scd_task, "scd_task", 8192, NULL, 6, NULL);
+    xTaskCreate(on_off_button_task, "on_off_button_task", 4096, NULL, 5, NULL);
+    // xTaskCreate(next_screen_button_task, "next_screen_button_task", 4096, NULL, 5, NULL);
+
+    vTaskDelay(pdMS_TO_TICKS(1000));
+
+    xTaskCreate(get_time_task, "get_time_task", 8192, NULL, 3, NULL);
+
+    while (1) {
+        lv_timer_handler();
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
 }
