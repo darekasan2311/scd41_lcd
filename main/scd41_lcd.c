@@ -40,7 +40,9 @@ static lv_obj_t *label_co2 = NULL;
 static lv_obj_t *label_temp = NULL;
 static lv_obj_t *label_humid = NULL;
 static lv_obj_t *screen_sensor = NULL;
+static lv_obj_t *screen_info = NULL;
 static lv_obj_t *label_time = NULL;
+static lv_obj_t *label_info = NULL;
 static lv_obj_t *label_date = NULL;
 
 extern void create_sensor_labels();
@@ -60,7 +62,7 @@ void initialize_sntp(void)
     // Set notification callback for time synchronization
     esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
     
-    // Set SNTP server (you can use multiple servers)
+    // Set SNTP server
     esp_sntp_setservername(0, "pool.ntp.org");
     esp_sntp_setservername(1, "time.google.com");
     
@@ -73,21 +75,47 @@ void initialize_sntp(void)
 
 void obtain_time(void)
 {
+    if (lvgl_port_lock(0)) {
+        lv_label_set_text(label_info, "Setting up time");
+        lvgl_port_unlock();
+    }
+    
     initialize_sntp();
     
-    // Wait for time to be set
     time_t now = 0;
     struct tm timeinfo = {0};
     int retry = 0;
     const int retry_count = 15;
     
-    while (esp_sntp_get_sync_status() == SNTP_SYNC_STATUS_RESET && ++retry < retry_count) {
+    char buffer[128];
+    while (esp_sntp_get_sync_status() == SNTP_SYNC_STATUS_RESET && retry < retry_count) {
+        retry++;
         ESP_LOGI(TAG, "Waiting for system time to be set... (%d/%d)", retry, retry_count);
+        
+        snprintf(buffer, sizeof(buffer), 
+                "Waiting for system time\nto be set...\n\n(%d/%d)", 
+                retry, retry_count);
+        
+        if (lvgl_port_lock(0)) {
+            lv_label_set_text(label_info, buffer);
+            lvgl_port_unlock();
+        }
+        
         vTaskDelay(2000 / portTICK_PERIOD_MS);
     }
     
     time(&now);
     localtime_r(&now, &timeinfo);
+    time_data = timeinfo;
+    
+    if (lvgl_port_lock(0)) {
+        if (retry >= retry_count) {
+            lv_label_set_text(label_info, "Time sync failed!\n\nCheck connection");
+        } else {
+            lv_label_set_text(label_info, "Time synchronized!");
+        }
+        lvgl_port_unlock();
+    }
 }
 
 void print_current_time(void)
@@ -100,41 +128,42 @@ void print_current_time(void)
     localtime_r(&now, &timeinfo);
     
     time_data = timeinfo;
-
+    
     strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
     ESP_LOGI(TAG, "Current time: %s", strftime_buf);
 }
 
-// LVGL timer callback - runs in LVGL context
 static void lvgl_update_timer_cb(lv_timer_t *timer)
 {
     char text_buffer[64];
-    
-    if (sensor_data.data_ready) {
-        if (label_co2) {
-            if (sensor_data.co2_ppm > 1000) {
-                lv_obj_set_pos(label_co2, 63, 260);
-            } else {
-                lv_obj_set_pos(label_co2, 80, 260);
+    if (lvgl_port_lock(0)) {
+        if (sensor_data.data_ready) {
+            if (label_co2) {
+                if (sensor_data.co2_ppm > 1000) {
+                    lv_obj_set_pos(label_co2, 63, 260);
+                } else {
+                    lv_obj_set_pos(label_co2, 80, 260);
+                }
+                snprintf(text_buffer, sizeof(text_buffer), "%d", sensor_data.co2_ppm);
+                lv_label_set_text(label_co2, text_buffer);
             }
-            snprintf(text_buffer, sizeof(text_buffer), "%d", sensor_data.co2_ppm);
-            lv_label_set_text(label_co2, text_buffer);
-        }
-        
-        if (label_temp) {
-            snprintf(text_buffer, sizeof(text_buffer), "%.1f", sensor_data.temperature);
-            lv_label_set_text(label_temp, text_buffer);
-        }
-        
-        if (label_humid) {
-            snprintf(text_buffer, sizeof(text_buffer), "%.1f", sensor_data.humidity);
-            lv_label_set_text(label_humid, text_buffer);
-        }
-        strftime(text_buffer, sizeof(text_buffer), "%I:%M %p", &time_data);
-        lv_label_set_text(label_time, text_buffer);
+            
+            if (label_temp) {
+                snprintf(text_buffer, sizeof(text_buffer), "%.1f", sensor_data.temperature);
+                lv_label_set_text(label_temp, text_buffer);
+            }
+            
+            if (label_humid) {
+                snprintf(text_buffer, sizeof(text_buffer), "%.1f", sensor_data.humidity);
+                lv_label_set_text(label_humid, text_buffer);
+            }
+            strftime(text_buffer, sizeof(text_buffer), "%I:%M %p", &time_data);
+            lv_label_set_text(label_time, text_buffer);
 
-        strftime(text_buffer, sizeof(text_buffer), "%Y/%m/%d", &time_data);
-        lv_label_set_text(label_date, text_buffer);
+            strftime(text_buffer, sizeof(text_buffer), "%Y/%m/%d", &time_data);
+            lv_label_set_text(label_date, text_buffer);
+        }
+        lvgl_port_unlock();
     }
 }
 // in lv_color_make order is BRG with RGB565 notation
@@ -251,6 +280,33 @@ void create_sensor_lines()
     lv_obj_set_style_line_color(line3, COLOR_ORANGE, 0);
 
 }
+
+void create_info_screen()
+{
+    screen_info = lv_obj_create(NULL);
+    lv_obj_set_style_bg_color(screen_info, COLOR_BLACK, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(screen_info, LV_OPA_COVER, LV_PART_MAIN);
+
+    lv_obj_t *rect = lv_obj_create(screen_info);
+ 
+    // Set position and size
+    lv_obj_set_pos(rect, 10, 10);           // x, y position
+    lv_obj_set_size(rect, 220, 290);        // width, height
+
+    // Style the rectangle
+    lv_obj_set_style_bg_color(rect, COLOR_BLACK, 0);  // Background color
+    lv_obj_set_style_bg_opa(rect, LV_OPA_COVER, 0);              // Full opacity
+    lv_obj_set_style_border_width(rect, 2, 0);                    // Border width
+    lv_obj_set_style_border_color(rect, COLOR_ORANGE, 0); // Border color
+    lv_obj_set_style_radius(rect, 10, 0);
+
+    label_info = lv_label_create(screen_info);
+    lv_label_set_text(label_info, "Please, wait");
+    lv_obj_set_style_text_font(label_info, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(label_info, COLOR_DARK_PURPLE, 0);
+    lv_obj_set_pos(label_info, 20, 20);
+}
+
 // Create the sensor screen
 void create_sensor_screen()
 {
@@ -382,6 +438,7 @@ void on_off_button_task(void *arg)
 
 void scd_task(void *arg)
 {
+
     // Configure I2C master
     i2c_config_t conf = {
         .mode = I2C_MODE_MASTER,
@@ -404,6 +461,7 @@ void scd_task(void *arg)
     
     // Wait for first measurement (5 seconds)
     vTaskDelay(pdMS_TO_TICKS(5000));
+
     
     while (1) {
         scd41_data_t data;
@@ -422,69 +480,119 @@ void scd_task(void *arg)
 void get_time_task(void *arg)
 {
     ESP_LOGI(TAG, "Start of wifi connection...");
-
+    
+    if (lvgl_port_lock(0)) {
+        lv_label_set_text(label_info, "Setting up wifi\nconnection");
+        lvgl_port_unlock();
+    }
+    
     ESP_ERROR_CHECK(w_init());
-
     esp_err_t ret = w_connect(WIFI_SSID, WIFI_PASSWORD);
+    
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to connect to Wi-Fi network");
+        if (lvgl_port_lock(0)) {
+            lv_label_set_text(label_info, "WiFi connection\nfailed!");
+            lvgl_port_unlock();
+        }
+        vTaskDelete(NULL);
+        return;
     }
-
+    
     wifi_ap_record_t ap_info;
     ret = esp_wifi_sta_get_ap_info(&ap_info);
+    
     if (ret == ESP_ERR_WIFI_CONN) {
+        if (lvgl_port_lock(0)) {
+            lv_label_set_text(label_info, "Wifi not initialized");
+            lvgl_port_unlock();
+        }
         ESP_LOGE(TAG, "Wi-Fi station interface not initialized");
+        vTaskDelete(NULL);
+        return;
     }
     else if (ret == ESP_ERR_WIFI_NOT_CONNECT) {
+        if (lvgl_port_lock(0)) {
+            lv_label_set_text(label_info, "Wifi not connected");
+            lvgl_port_unlock();
+        }
         ESP_LOGE(TAG, "Wi-Fi station is not connected");
-    } else {
+        vTaskDelete(NULL);
+        return;
+    } 
+    else {
+        if (lvgl_port_lock(0)) {
+            lv_label_set_text(label_info, "Wifi connected!");
+            lvgl_port_unlock();
+        }
+        
         ESP_LOGI(TAG, "--- Access Point Information ---");
         ESP_LOG_BUFFER_HEX("MAC Address", ap_info.bssid, sizeof(ap_info.bssid));
         ESP_LOG_BUFFER_CHAR("SSID", ap_info.ssid, sizeof(ap_info.ssid));
         ESP_LOGI(TAG, "Primary Channel: %d", ap_info.primary);
         ESP_LOGI(TAG, "RSSI: %d", ap_info.rssi);
         ESP_LOGI(TAG, "--------------------------------");
-
-        vTaskDelay(pdMS_TO_TICKS(5000));
+        
+        vTaskDelay(pdMS_TO_TICKS(2000));
     }
-
+    
     setenv("TZ", "JST-9", 1);  // Japan Standard Time (UTC+9)
     tzset();
     
-    // Get time from SNTP
     obtain_time();
     
-    // Print time every 10 seconds
+    vTaskDelay(pdMS_TO_TICKS(2000));
+    if (lvgl_port_lock(0)) {
+        lv_screen_load(screen_sensor);
+        lvgl_port_unlock();
+    }
+    
     while (1) {
         print_current_time();
         vTaskDelay(10000 / portTICK_PERIOD_MS);
     }
 }
-
 void app_main(void)
 {
-    init_lcd(0);  // LV_DISP_ROT_270 - old val
+    init_lcd(0);
     
     if (lvgl_port_lock(0)) {
         create_sensor_screen();
+        create_info_screen();
         
-        lv_screen_load(screen_sensor);
+        lv_screen_load(screen_info);
+        lv_label_set_text(label_info, "Initializing...");
         
         lvgl_port_unlock();
     }
     
-    create_sensor_labels();
-
+    vTaskDelay(pdMS_TO_TICKS(100)); //wait for load screens
+    
+    if (lvgl_port_lock(0)) {
+        lv_timer_create(lvgl_update_timer_cb, 500, NULL);
+        lvgl_port_unlock();
+    }
+    
+    if (lvgl_port_lock(0)) {
+        lv_label_set_text(label_info, "Setting up sensor");
+        lvgl_port_unlock();
+    }
+    
     xTaskCreate(scd_task, "scd_task", 8192, NULL, 6, NULL);
     xTaskCreate(on_off_button_task, "on_off_button_task", 4096, NULL, 5, NULL);
-    // xTaskCreate(next_screen_button_task, "next_screen_button_task", 4096, NULL, 5, NULL);
-
+    
     vTaskDelay(pdMS_TO_TICKS(1000));
-
+    
+    if (lvgl_port_lock(0)) {
+        lv_label_set_text(label_info, "Sensor setup complete");
+        lvgl_port_unlock();
+    }
+    
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    
     xTaskCreate(get_time_task, "get_time_task", 8192, NULL, 3, NULL);
-
+    
     while (1) {
-        lv_timer_handler();
-        vTaskDelay(pdMS_TO_TICKS(10));
+        vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }
